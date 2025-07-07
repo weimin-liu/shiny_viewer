@@ -31,6 +31,8 @@ def plot_tab():
             ui.sidebar(
                 ui.input_select('x', label='x_value', choices=[]),
                 ui.input_select('y', label='y_value', choices=[]),
+                ui.input_select('z', label='z_value', choices=[]),
+                ui.input_checkbox('wait_for_axes', 'Show plot after selecting axes', True),
             ),
             output_widget('plot')
         )
@@ -68,32 +70,54 @@ def server(input, output, session):
         ui.update_select("hdf_keys", choices=keys)
 
     @reactive.effect
-    @reactive.event(input.hdf_keys)
+    @reactive.event(input.hdf_keys, input.wait_for_axes)
     def update_dynamic_axis_selection():
-        columns = pd.read_hdf(input.hdf_path(), key=input.hdf_keys()).columns
-        ui.update_select("x", choices = list(columns))
-        ui.update_select("y", choices = list(columns))
+        path = input.hdf_path()
+        key = input.hdf_keys()
+        if os.path.exists(path) and key:
+            columns = pd.read_hdf(path, key=key).columns
+        else:
+            columns = []
+        if input.wait_for_axes():
+            selected = None
+        else:
+            selected = list(columns)[0] if len(columns) > 0 else None
+        ui.update_select("x", choices=list(columns), selected=selected)
+        ui.update_select("y", choices=list(columns), selected=selected)
+        ui.update_select("z", choices=list(columns), selected=selected)
 
 
     @reactive.effect
     @reactive.event(input.hdf_keys)
     def read_hdf_dataframe_by_selected_key():
-        try:
-            df.set(pd.read_hdf(input.hdf_path(), key=input.hdf_keys()))
-        except Exception as e:
-            print(e)
+        path = input.hdf_path()
+        key = input.hdf_keys()
+        if os.path.exists(path) and key:
+            try:
+                df.set(pd.read_hdf(path, key=key))
+            except Exception as e:
+                print(e)
+        else:
+            df.set(pd.DataFrame())
 
     @render_widget
     def plot():
-        df = pd.read_hdf(input.hdf_path(), key=input.hdf_keys())
+        reactive.req(input.x(), input.y(), input.z())
+        path = input.hdf_path()
+        key = input.hdf_keys()
+        if not (os.path.exists(path) and key):
+            return go.Figure()
+        df_local = pd.read_hdf(path, key=key)
         x = input.x()
         y = input.y()
-        df = df.sort_values(by=x)
+        z = input.z()
+        df_local = df_local.sort_values(by=x)
         fig = px.line(
-            df,
+            df_local,
             x=x,
             y=y,
-        ).update_layout(showlegend=False)
+            color=z,
+        ).update_layout(showlegend=True)
         return fig
 
     @output
